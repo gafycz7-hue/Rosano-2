@@ -1,0 +1,139 @@
+-- Rayfield GUI
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+
+local Window = Rayfield:CreateWindow({
+    Name = "ERLC CrossPlatform GUI",
+    LoadingTitle = "Loading...",
+    ConfigFolder = "ERLC_GUI"
+})
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local UIS = game:GetService("UserInputService")
+local UserInputService = game:GetService("UserInputService")
+
+-- Toggles
+local AimbotEnabled = false
+local ESPEnabled = false
+local NoclipEnabled = false
+local TargetPart = "Head"
+local FOV = 100
+
+-- Rayfield toggles
+Window:CreateToggle({Name="Aimbot", CurrentValue=false, Callback=function(val) AimbotEnabled=val end})
+Window:CreateToggle({Name="ESP", CurrentValue=false, Callback=function(val) ESPEnabled=val end})
+Window:CreateToggle({Name="Noclip", CurrentValue=false, Callback=function(val) NoclipEnabled=val end})
+Window:CreateDropdown({Name="Aim Part", Options={"Head","Belly"}, CurrentOption="Head", Callback=function(opt) TargetPart=opt end})
+Window:CreateSlider({Name="Aimbot FOV", Range={10,300}, Increment=1, CurrentValue=100, Callback=function(val) FOV=val end})
+
+-- Team colors
+local TeamColors = {
+    ["Police"] = Color3.fromRGB(0,0,255),
+    ["Sheriff"] = Color3.fromRGB(0,255,255),
+    ["Fire"] = Color3.fromRGB(255,0,0),
+    ["Civilian"] = Color3.fromRGB(255,255,255)
+}
+
+-- ESP
+local ESPFolder = Instance.new("Folder", workspace)
+ESPFolder.Name = "ESPObjects"
+
+function GetTeam(player)
+    -- Pokus o zjištění týmu
+    local role = player:FindFirstChild("Team") or player:FindFirstChild("Role")
+    if role then
+        return role.Value
+    end
+    return "Civilian"
+end
+
+function CreateESP(player)
+    local box = Instance.new("BoxHandleAdornment")
+    box.Adornee = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    box.Size = Vector3.new(2,3,1)
+    box.Color3 = TeamColors[GetTeam(player)] or Color3.new(1,1,1)
+    box.Transparency = 0.5
+    box.AlwaysOnTop = true
+    box.Parent = ESPFolder
+
+    local text = Instance.new("BillboardGui")
+    text.Adornee = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    text.Size = UDim2.new(0,100,0,50)
+    text.AlwaysOnTop = true
+    local label = Instance.new("TextLabel", text)
+    label.Size = UDim2.new(1,0,1,0)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = box.Color3
+    label.TextScaled = true
+    text.Parent = ESPFolder
+
+    return {Box=box, Label=label, Player=player}
+end
+
+local ESPObjects = {}
+for _,p in pairs(Players:GetPlayers()) do
+    if p~=LocalPlayer then
+        table.insert(ESPObjects, CreateESP(p))
+    end
+end
+
+Players.PlayerAdded:Connect(function(p)
+    table.insert(ESPObjects, CreateESP(p))
+end)
+
+-- Noclip
+RunService.Stepped:Connect(function()
+    if NoclipEnabled then
+        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide=false
+            end
+        end
+    end
+end)
+
+-- Aimbot
+RunService.RenderStepped:Connect(function()
+    if AimbotEnabled then
+        local closest = nil
+        local shortest = FOV
+        local screenCenter = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
+        for _, p in pairs(Players:GetPlayers()) do
+            if p~=LocalPlayer and p.Character and p.Character:FindFirstChild(TargetPart) then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(p.Character[TargetPart].Position)
+                if onScreen then
+                    local mousePos = UserInputService.TouchEnabled and screenCenter or UserInputService:GetMouseLocation()
+                    local dist = (Vector2.new(screenPos.X,screenPos.Y) - Vector2.new(mousePos.X,mousePos.Y)).Magnitude
+                    if dist<shortest then
+                        shortest = dist
+                        closest = p.Character[TargetPart]
+                    end
+                end
+            end
+        end
+
+        if closest then
+            local direction = (closest.Position - Camera.CFrame.Position).Unit
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + direction)
+        end
+    end
+end)
+
+-- ESP Update
+RunService.RenderStepped:Connect(function()
+    for _, obj in pairs(ESPObjects) do
+        local char = obj.Player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") and ESPEnabled then
+            obj.Box.Adornee = char.HumanoidRootPart
+            obj.Label.Text = obj.Player.Name.." | "..(char:FindFirstChild("Humanoid") and math.floor(char.Humanoid.Health) or 0)
+            obj.Label.TextColor3 = TeamColors[GetTeam(obj.Player)] or Color3.new(1,1,1)
+            obj.Box.Color3 = obj.Label.TextColor3
+        else
+            obj.Box.Adornee = nil
+            obj.Label.Text = ""
+        end
+    end
+end)
